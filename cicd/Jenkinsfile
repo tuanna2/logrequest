@@ -1,0 +1,49 @@
+#!groovy
+node("slave-1"){
+	def imageGroup = 'demo'
+	def appName = "news-manager"
+	def namespace = "test"
+
+	def helm_template = "helm-template"
+	
+	def version = "1.0.0"
+	def dockerImage = "${imageGroup}/${appName}"
+	def harborHost = "192.168.64.17"
+
+			stage('Checkout project') 
+			{
+				checkout scm			
+			}
+			// stage('Build project') 
+			// {
+			// 	sh "npm install"
+			// }
+			stage('Build docker image') 
+			{
+				app = docker.build("${dockerImage}", "-f ./cicd/Dockerfile .")
+			}
+			stage('Push image'){
+				docker.withRegistry("http://${harborHost}/", 'harbor-private-registry' ) {                       
+					app.push(version)
+				}
+				sh "docker rmi ${dockerImage} -f"
+				sh "docker rmi ${harborHost}/${dockerImage}:${version} -f"
+			}
+			stage('Push to helm'){
+				sh 'helm repo update'
+				sh "helm pull library/${helm_template} --version 0.1.0"
+				sh "tar -xvzf helm-template-0.1.0.tgz ${helm_template}/"
+				sh "helm create ${appName}"
+				sh "rm -rf ${appName}/templates/"
+				sh "cp -R ${helm_template}/templates ${appName}/"
+				sh "cp cicd/values.yaml ${appName}/"
+				sh "sed -i 's|image_version|${harborHost}/${dockerImage}:${version}|g' ${appName}/values.yaml"
+				sh "helm template ${appName}/ > ${appName}/deploy-${appName}.yaml"
+				sh "tar -cvzf ${appName}-${version}.tgz ${appName}/"
+				sh "helm cm-push ${appName}-${version}.tgz harborRepository"
+			}
+			stage('Apply k8s') {
+				echo "Deploy to k8s"
+				sh "helm upgrade --install ${appName} ./${appName} -n ${namespace}"
+			}
+	}
