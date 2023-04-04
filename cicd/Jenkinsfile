@@ -1,7 +1,7 @@
 #!groovy
 node("slave-1"){
 	def imageGroup = 'demo'
-	def appName = "news-manager"
+	def appName = "log-request"
 	def namespace = "test"
 
 	def helm_template = "helm-template"
